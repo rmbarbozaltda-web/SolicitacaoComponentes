@@ -1,0 +1,2 @@
+import db_manager
+db_manager.verificar_e_reconfigurar_centros_custo()

@@ -1,0 +1,40 @@
+Arquivos de ambiente
+.env
+
+*.env
+
+Arquivos de cache
+
+pycache/
+
+*.py[cod]
+
+*$py.class
+
+Arquivos de credenciais
+firebase-credentials.json
+
+credentials.json
+
+Arquivos de log e temporários
+*.log
+
+.DS_Store
+
+*.sqlite
+
+Arquivos de banco de dados SQLite
+garantia
+
+*.db
+
+Segredos do Streamlit
+
+.streamlit/secrets.toml
+
+Outros arquivos temporários
+.ipynb_checkpoints/
+
+.idea/
+
+.vscode/
