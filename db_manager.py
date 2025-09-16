@@ -111,7 +111,6 @@ def verificar_e_reconfigurar_centros_custo():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
             # Verifica se a tabela existe
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='centros_custo'")
             if not cursor.fetchone():
@@ -129,7 +128,6 @@ def verificar_e_reconfigurar_centros_custo():
             # Verifica se há dados na tabela
             cursor.execute("SELECT COUNT(*) FROM centros_custo")
             count = cursor.fetchone()[0]
-            
             if count == 0:
                 print("A tabela centros_custo está vazia. Inserindo dados padrão...")
                 # Use os nomes de usuário que correspondem aos seus gestores em auth.py
@@ -150,13 +148,13 @@ def verificar_e_reconfigurar_centros_custo():
             print("Centros de custo configurados:")
             for centro in centros:
                 print(f"  {centro}")
-                
             return True
     except Exception as e:
         print(f"Erro ao verificar/reconfigurar centros de custo: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
+
 
 def get_gestor_by_centro_custo(centro_custo):
     """Retorna o gestor responsável pelo centro de custo especificado."""
@@ -309,6 +307,146 @@ def verificar_usuarios_gestores():
     except Exception as e:
         import traceback
         return {"erro": f"Erro ao verificar gestores: {str(e)}\n{traceback.format_exc()}"}
+    
+def confirmar_retirada_itens_solicitacao(solicitacao_id, user_confirming):
+    """
+    Confirma a retirada dos itens pelo solicitante e atualiza o status
+    da solicitação com base na quantidade retirada vs. solicitada.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 1. Obter o status atual
+        cursor.execute(
+            "SELECT status_atual FROM solicitacoes WHERE id = ?", 
+            (solicitacao_id,)
+        )
+        status_atual = cursor.fetchone()[0]
+        
+        # 2. Obter a quantidade total de itens solicitados
+        cursor.execute(
+            "SELECT SUM(quantidade_solicitada) FROM itens_solicitacao WHERE solicitacao_id = ?", 
+            (solicitacao_id,)
+        )
+        total_itens_solicitados = cursor.fetchone()[0] or 0
+        
+        # 3. Verificar quantos itens já foram retirados
+        cursor.execute("SELECT SUM(quantidade_retirada) FROM itens_solicitacao WHERE solicitacao_id = ?", (solicitacao_id,))
+        current_total_retirado = cursor.fetchone()[0] or 0
+        
+        if current_total_retirado == 0:
+            novo_status = "Aguardando Retirada"  # Se nada foi retirado ainda
+        elif current_total_retirado < total_itens_solicitados:
+            novo_status = "Retirada Parcial"
+        else:
+            novo_status = "Retirada Concluída"
+        
+        # Apenas atualiza o status se ele realmente mudou
+        if novo_status != status_atual:
+            cursor.execute(
+                "UPDATE solicitacoes SET status_atual = ?, data_ultimo_status = ? WHERE id = ?",
+                (novo_status, datetime.datetime.now(), solicitacao_id)
+            )
+            # 4. Registrar no histórico
+            log_historico(solicitacao_id, user_confirming, f"Retirada de itens confirmada. Novo status: {novo_status}")
+        else:
+            log_historico(solicitacao_id, user_confirming, f"Retirada de itens confirmada. Status permaneceu: {novo_status}")
+        
+        conn.commit()
+        return True  # Retorna True para indicar sucesso
+    
+def init_database():
+    """
+    Inicializa o banco de dados, criando as tabelas necessárias se não existirem.
+    Esta função deve ser chamada ao iniciar o aplicativo.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Criar tabela solicitacoes
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS solicitacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_criacao TIMESTAMP NOT NULL,
+            solicitante TEXT NOT NULL,
+            cliente_id TEXT,
+            cliente_nome TEXT,
+            pedido_venda TEXT,
+            equipamento_sku TEXT,
+            equipamento_nome TEXT,
+            justificativa TEXT,
+            status_atual TEXT DEFAULT 'Pendente Aprovação',
+            data_ultimo_status TIMESTAMP,
+            aprovador TEXT,
+            data_aprovacao TIMESTAMP,
+            motivo_rejeicao TEXT,
+            liberador TEXT,
+            data_liberacao TIMESTAMP,
+            data_retirada TIMESTAMP,
+            data_devolucao TIMESTAMP,
+            data_devolucao_confirmada TIMESTAMP,
+            data_finalizacao TIMESTAMP,
+            centro_custo TEXT,
+            setor TEXT
+        )
+        """)
+        
+        # Criar tabela itens_solicitacao
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS itens_solicitacao (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            solicitacao_id INTEGER NOT NULL,
+            componente_sku TEXT NOT NULL,
+            componente_desc TEXT NOT NULL,
+            quantidade_solicitada INTEGER NOT NULL,
+            quantidade_liberada INTEGER DEFAULT 0,
+            quantidade_retirada INTEGER DEFAULT 0,
+            quantidade_devolvida INTEGER DEFAULT 0,
+            FOREIGN KEY (solicitacao_id) REFERENCES solicitacoes (id)
+        )
+        """)
+        
+        # Criar tabela histórico
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historico (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            solicitacao_id INTEGER NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            usuario TEXT NOT NULL,
+            acao TEXT NOT NULL,
+            detalhes TEXT,
+            FOREIGN KEY (solicitacao_id) REFERENCES solicitacoes (id)
+        )
+        """)
+        
+        # Criar tabela clientes_pedidos_equipamentos (se usado para histórico)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clientes_pedidos_equipamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cliente_id TEXT NOT NULL,
+            cliente_nome TEXT NOT NULL,
+            pedido_venda TEXT NOT NULL,
+            equipamento_sku TEXT NOT NULL,
+            equipamento_nome TEXT NOT NULL
+        )
+        """)
+        
+        # Criar tabela componentes_produtos (para cache local do Protheus)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS componentes_produtos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            produto_sku TEXT NOT NULL,
+            componente_sku TEXT NOT NULL,
+            componente_desc TEXT NOT NULL,
+            quantidade INTEGER NOT NULL
+        )
+        """)
+        
+        # Configurar centros de custo e gestores
+        setup_centros_custo_gestores()
+        
+        conn.commit()
+        print("Banco de dados inicializado com sucesso.")
 
 def get_clientes_pedidos_equipamentos():
     """

@@ -1,15 +1,17 @@
 import streamlit as st
+import auth
+import db_manager
 import pandas as pd
 import datetime
+import email_sender
 from urllib.parse import urlparse, parse_qs
 import io 
 
-# Importa os módulos que criamos
-import auth
-import db_manager
-import email_sender
-from database import get_protheus_connection, get_dts_connection # Para testar as conexões iniciais
-from page_dashboard import page_dashboard  # Correto
+from database import get_protheus_connection, get_dts_connection
+from page_dashboard import page_dashboard
+
+db_manager.init_database()
+
 
 # --- Configurações Iniciais ---
 st.set_page_config(layout="wide", page_title="Gestão de Solicitação de Componentes - Garantia")
