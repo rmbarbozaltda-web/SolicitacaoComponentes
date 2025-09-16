@@ -6,11 +6,30 @@ import datetime
 import email_sender
 from urllib.parse import urlparse, parse_qs
 import io 
+import os
 
 from database import get_protheus_connection, get_dts_connection
 from page_dashboard import page_dashboard
 
+# Verificar se o banco de dados existe e inicializá-lo se necessário
+if not os.path.exists('garantia.db'):
+    print("Banco de dados não encontrado. Inicializando...")
+    inicializar_e_migrar_db()
+else:
+    # Verificar se a tabela pedidos_info existe e tem dados
+    try:
+        df_test = db_manager.get_clientes_pedidos_equipamentos()
+        if df_test.empty:
+            print("Tabela pedidos_info vazia. Inicializando com dados de exemplo...")
+            db_manager.inicializar_tabela_pedidos_info()
+    except Exception as e:
+        print(f"Erro ao verificar tabela pedidos_info: {e}")
+        print("Inicializando banco de dados...")
+        inicializar_e_migrar_db()
+
 db_manager.init_database()
+
+
 
 
 # --- Configurações Iniciais ---

@@ -474,23 +474,86 @@ def init_database():
 
 def get_clientes_pedidos_equipamentos():
     """
-    Busca clientes, pedidos e equipamentos da tabela 'pedidos_info' no DB local.
-    Retorna um DataFrame com os dados necessários para os dropdowns.
+    Retorna um DataFrame com informações de clientes, pedidos e equipamentos
+    para uso na interface de solicitação.
     """
-    with get_db_connection() as conn:
-        query = """
-        SELECT DISTINCT
-            "CNPJ/CPF" AS cliente_cnpj_cpf,
-            "Nome/Razão Social" AS cliente_nome_razao,
-            "Data Venda" AS data_venda,
-            "Nº PDV" AS numero_pdv,
-            "SKU Protheus" AS equipamento_sku,
-            "Descrição do Produto" AS equipamento_descricao
-        FROM pedidos_info
-        ORDER BY "Nome/Razão Social", "Data Venda" DESC, "Nº PDV";
-        """
-        df = pd.read_sql_query(query, conn)
-        return df
+    # Definir as colunas padrão para o DataFrame vazio
+    colunas_padrao = ['CD_CLIENTE', 'NM_CLIENTE', 'CD_PEDIDOVENDA', 'CD_PRODUTO', 'DS_PRODUTO']
+    df_vazio = pd.DataFrame(columns=colunas_padrao)
+    
+    try:
+        # Verificar se o arquivo do banco de dados existe
+        if not os.path.exists(DB_LOCAL):
+            print(f"Arquivo de banco de dados {DB_LOCAL} não encontrado.")
+            return df_vazio
+        
+        # Tentar conectar ao banco de dados
+        conn = None
+        try:
+            conn = sqlite3.connect(DB_LOCAL)
+        except Exception as e:
+            print(f"Erro ao conectar ao banco de dados: {e}")
+            return df_vazio
+        
+        # Verificar se a tabela existe
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pedidos_info'")
+            if not cursor.fetchone():
+                print("Tabela pedidos_info não encontrada.")
+                if conn:
+                    conn.close()
+                return df_vazio
+        except Exception as e:
+            print(f"Erro ao verificar existência da tabela: {e}")
+            if conn:
+                conn.close()
+            return df_vazio
+        
+        # Verificar se a tabela tem registros
+        try:
+            cursor.execute("SELECT COUNT(*) FROM pedidos_info")
+            count = cursor.fetchone()[0]
+            if count == 0:
+                print("Tabela pedidos_info está vazia.")
+                if conn:
+                    conn.close()
+                return df_vazio
+        except Exception as e:
+            print(f"Erro ao verificar registros na tabela: {e}")
+            if conn:
+                conn.close()
+            return df_vazio
+        
+        # Tentar executar a consulta
+        try:
+            # Verificar se as colunas necessárias existem
+            cursor.execute("PRAGMA table_info(pedidos_info)")
+            colunas_existentes = [info[1] for info in cursor.fetchall()]
+            colunas_necessarias = ['CD_CLIENTE', 'NM_CLIENTE', 'CD_PEDIDOVENDA', 'CD_PRODUTO', 'DS_PRODUTO']
+            
+            # Verificar se todas as colunas necessárias existem
+            colunas_faltantes = [col for col in colunas_necessarias if col not in colunas_existentes]
+            if colunas_faltantes:
+                print(f"Colunas faltantes na tabela pedidos_info: {colunas_faltantes}")
+                if conn:
+                    conn.close()
+                return df_vazio
+            
+            # Executar a consulta
+            query = "SELECT CD_CLIENTE, NM_CLIENTE, CD_PEDIDOVENDA, CD_PRODUTO, DS_PRODUTO FROM pedidos_info"
+            df = pd.read_sql_query(query, conn)
+            if conn:
+                conn.close()
+            return df
+        except Exception as e:
+            print(f"Erro ao executar consulta SQL: {e}")
+            if conn:
+                conn.close()
+            return df_vazio
+    except Exception as e:
+        print(f"Erro geral em get_clientes_pedidos_equipamentos: {e}")
+        return df_vazio
     
 
 
