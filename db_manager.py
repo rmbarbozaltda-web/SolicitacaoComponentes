@@ -355,6 +355,27 @@ def confirmar_retirada_itens_solicitacao(solicitacao_id, user_confirming):
         conn.commit()
         return True  # Retorna True para indicar sucesso
     
+def adicionar_campo_observacoes():
+    """
+    Adiciona o campo 'observacoes' à tabela itens_solicitacao, se ainda não existir.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Verificar se a coluna já existe
+        cursor.execute("PRAGMA table_info(itens_solicitacao)")
+        colunas = [info[1] for info in cursor.fetchall()]
+        
+        if 'observacoes' not in colunas:
+            try:
+                cursor.execute("ALTER TABLE itens_solicitacao ADD COLUMN observacoes TEXT")
+                conn.commit()
+                print("Coluna 'observacoes' adicionada com sucesso à tabela 'itens_solicitacao'")
+            except Exception as e:
+                print(f"Erro ao adicionar coluna 'observacoes': {str(e)}")
+        else:
+            print("Coluna 'observacoes' já existe na tabela 'itens_solicitacao'")
+    
 def init_database():
     """
     Inicializa o banco de dados, criando as tabelas necessárias se não existirem.
@@ -444,6 +465,9 @@ def init_database():
         
         # Configurar centros de custo e gestores
         setup_centros_custo_gestores()
+
+        # Adicionar o campo observacoes se necessário
+        adicionar_campo_observacoes()
         
         conn.commit()
         print("Banco de dados inicializado com sucesso.")
@@ -468,23 +492,7 @@ def get_clientes_pedidos_equipamentos():
         df = pd.read_sql_query(query, conn)
         return df
     
-def adicionar_campo_observacoes():
-    """Adiciona o campo observacoes à tabela itens_solicitacao se ele não existir."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        # Verifica se a coluna já existe
-        cursor.execute("PRAGMA table_info(itens_solicitacao)")
-        colunas = [info[1] for info in cursor.fetchall()]
-        
-        if 'observacoes' not in colunas:
-            cursor.execute("ALTER TABLE itens_solicitacao ADD COLUMN observacoes TEXT")
-            conn.commit()
-            print("Campo 'observacoes' adicionado à tabela 'itens_solicitacao'")
-        else:
-            print("O campo 'observacoes' já existe na tabela 'itens_solicitacao'")
 
-# Execute uma vez na importação para garantir que o campo exista
-adicionar_campo_observacoes()    
 
 def get_componentes_by_sku_protheus(equipamento_sku):
     """
