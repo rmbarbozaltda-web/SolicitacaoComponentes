@@ -10,6 +10,7 @@ import os
 
 from database import get_protheus_connection, get_dts_connection
 from page_dashboard import page_dashboard
+from gerar_base_pedidos import inicializar_e_migrar_db
 
 # Verificar se o banco de dados existe e inicializá-lo se necessário
 if not os.path.exists('garantia.db'):
