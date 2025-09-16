@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-from tqdm import tqdm
 import time
 import sqlite3
 from decimal import Decimal
@@ -8,6 +7,21 @@ import datetime # Importado para usar datas
 
 # Detecta ambiente do Streamlit Cloud ou outros ambientes
 is_streamlit_cloud = os.environ.get('IS_STREAMLIT_CLOUD', False)
+
+# Tenta importar tqdm se disponível
+try:
+    from tqdm import tqdm
+    tqdm_available = True
+except ImportError:
+    tqdm_available = False
+    # Cria um substituto simples para tqdm
+    def tqdm(iterable, **kwargs):
+        # Pega a descrição se fornecida
+        desc = kwargs.get('desc', '')
+        if desc:
+            print(f"{desc}...")
+        # Retorna o iterável sem progresso visual
+        return iterable
 
 # Tenta importar pyodbc apenas em ambientes que o suportam
 pyodbc_available = False
@@ -107,7 +121,8 @@ def inicializar_e_migrar_db():
         colunas_existentes_itens = [info[1] for info in cursor.fetchall()]
         novas_colunas_itens = [
             ('quantidade_liberada', 'INTEGER DEFAULT 0'),
-            ('quantidade_retirada', 'INTEGER DEFAULT 0')
+            ('quantidade_retirada', 'INTEGER DEFAULT 0'),
+            ('observacoes', 'TEXT')
         ]
         for col_name, col_type in novas_colunas_itens:
             if col_name not in colunas_existentes_itens:
@@ -258,5 +273,6 @@ def gerar_base_completa():
 
 if __name__ == '__main__':
     gerar_base_completa()
+
 
 
