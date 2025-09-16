@@ -1,10 +1,23 @@
-import pyodbc
+import os
 import pandas as pd
 from tqdm import tqdm
 import time
 import sqlite3
 from decimal import Decimal
 import datetime # Importado para usar datas
+
+# Detecta ambiente do Streamlit Cloud ou outros ambientes
+is_streamlit_cloud = os.environ.get('IS_STREAMLIT_CLOUD', False)
+
+# Tenta importar pyodbc apenas em ambientes que o suportam
+pyodbc_available = False
+if not is_streamlit_cloud:
+    try:
+        import pyodbc
+        pyodbc_available = True
+        print("pyodbc importado com sucesso.")
+    except ImportError:
+        print("pyodbc não está disponível. Algumas funcionalidades de conexão ao banco de dados externo estarão limitadas.")
 
 DB_LOCAL = 'garantia.db'
 
@@ -101,18 +114,14 @@ def inicializar_e_migrar_db():
                 print(f" -> Adicionando coluna '{col_name}' na tabela 'itens_solicitacao'...")
                 cursor.execute(f"ALTER TABLE itens_solicitacao ADD COLUMN {col_name} {col_type};")
         conn.commit()
-    
     # 3. Configuração da tabela de centros de custo e gestores
     print(" -> Configurando tabela de centros de custo e gestores...")
-    import db_manager  # Importamos aqui para usar a função
-    db_manager.setup_centros_custo_gestores()  # Chamada para configurar a tabela de centros de custo
-    
+    try:
+        import db_manager  # Importamos aqui para usar a função
+        db_manager.setup_centros_custo_gestores()  # Chamada para configurar a tabela de centros de custo
+    except Exception as e:
+        print(f"Aviso: Não foi possível configurar centros de custo: {e}")
     print("Estrutura do banco de dados verificada e atualizada com sucesso.")
-
-
-# O restante da função gerar_base_completa e o if __name__ == '__main__': permanecem os mesmos
-# Certifique-se de que a função inicializar_e_migrar_db() é chamada antes de qualquer operação no DB local.
-# O código abaixo é o que você já tinha, apenas re-incluído para contexto.
 
 def gerar_base_completa():
     """
@@ -121,8 +130,48 @@ def gerar_base_completa():
     """
     # Passo 0: Garante que a estrutura do DB local está correta ANTES de tudo.
     inicializar_e_migrar_db()
+    
+    # Se estamos no Streamlit Cloud ou pyodbc não está disponível, 
+    # não tentamos acessar os bancos externos
+    if is_streamlit_cloud or not pyodbc_available:
+        print("\nFunção de geração de base completa não disponível no ambiente atual.")
+        print("Esta funcionalidade requer acesso direto ao banco de dados Protheus/DTS.")
+        print("Use esta aplicação em um ambiente local com pyodbc instalado para acessar esta funcionalidade.")
+        
+        # Verifica se já existe uma tabela pedidos_info localmente
+        with sqlite3.connect(DB_LOCAL) as conn_check:
+            cursor = conn_check.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pedidos_info'")
+            if cursor.fetchone():
+                print("\nUma tabela 'pedidos_info' já existe no banco local.")
+                cursor.execute("SELECT COUNT(*) FROM pedidos_info")
+                count = cursor.fetchone()[0]
+                print(f"A tabela contém {count} registros.")
+            else:
+                print("\nNenhuma tabela 'pedidos_info' encontrada no banco local.")
+                print("A aplicação pode ter funcionalidade limitada até que esta tabela seja criada.")
+                
+                # Opcionalmente, criar uma tabela vazia com a estrutura correta
+                try:
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS pedidos_info (
+                            CD_CLIENTE TEXT,
+                            NM_CLIENTE TEXT,
+                            CD_PEDIDOVENDA TEXT,
+                            CD_PRODUTO TEXT,
+                            DS_PRODUTO TEXT
+                        )
+                    ''')
+                    print("Uma tabela vazia 'pedidos_info' foi criada com a estrutura básica.")
+                except Exception as e:
+                    print(f"Erro ao criar tabela vazia: {e}")
+        
+        return
+
     print("\nIniciando a geração da base de dados de pedidos...")
     # Conexão 1 - PROTHEUS_PRODUCAO
+    conn1 = None
+    conn2 = None
     try:
         conn1 = pyodbc.connect(
             'DRIVER={ODBC Driver 18 for SQL Server};'
@@ -136,6 +185,7 @@ def gerar_base_completa():
     except Exception as e:
         print(f"Falha ao conectar no PROTHEUS: {e}")
         return
+    
     # Conexão 2 - TOPEMA_PRD (DTS)
     try:
         conn2 = pyodbc.connect(
@@ -149,13 +199,16 @@ def gerar_base_completa():
         print("Conexão com DTS bem-sucedida.")
     except Exception as e:
         print(f"Falha ao conectar no DTS: {e}")
-        conn1.close()
+        if conn1:
+            conn1.close()
         return
+    
     inicio = time.time()
     print("Iniciando extração de pedidos do Protheus...")
     # 1. Pegando os pedidos únicos do Protheus
     df_pedidos = pd.read_sql_query("SELECT DISTINCT C5_NUM AS NumeroPedido FROM SC5010 WHERE D_E_L_E_T_ = ''", conn1)
     print(f"Encontrados {len(df_pedidos)} pedidos únicos.")
+    
     resultados = []
     # 2. Para cada pedido, executa a procedure no DTS
     for numero in tqdm(df_pedidos['NumeroPedido'], desc='Processando pedidos no DTS', unit='pedido'):
@@ -170,12 +223,17 @@ def gerar_base_completa():
         except Exception as e:
             print(f"\nErro ao processar pedido {numero}: {e}")
             continue
-    conn1.close()
-    conn2.close()
+    
+    if conn1:
+        conn1.close()
+    if conn2:
+        conn2.close()
     print("Conexões com Protheus e DTS fechadas.")
+    
     if not resultados:
         print("Nenhum resultado foi retornado pela procedure. Encerrando.")
         return
+    
     df_resultado = pd.DataFrame(resultados)
     df_resultado.drop_duplicates(inplace=True)
     # --- AJUSTE DE TIPOS DE DADOS ---
@@ -183,6 +241,7 @@ def gerar_base_completa():
     for col in df_resultado.columns:
         if any(isinstance(x, Decimal) for x in df_resultado[col].dropna()):
             df_resultado[col] = df_resultado[col].astype(float)
+    
     # Salva o resultado em uma tabela 'pedidos_info' no nosso banco local
     try:
         with sqlite3.connect(DB_LOCAL) as conn_local:
@@ -199,4 +258,5 @@ def gerar_base_completa():
 
 if __name__ == '__main__':
     gerar_base_completa()
+
 
