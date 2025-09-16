@@ -38,3 +38,5 @@ Outros arquivos temporários
 .idea/
 
 .vscode/
+
+!garantia.db
