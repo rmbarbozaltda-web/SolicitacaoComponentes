@@ -1,8 +1,23 @@
 import sqlite3
 import pandas as pd
 import datetime
-import pyodbc
-import streamlit as st # Adicionado para usar st.error nas funções que interagem com o Streamlit
+import streamlit as st
+
+# Detecta ambiente do Streamlit Cloud (você pode adicionar essa verificação)
+import os
+is_streamlit_cloud = os.environ.get('IS_STREAMLIT_CLOUD', False)
+
+if not is_streamlit_cloud:
+    try:
+        import pyodbc
+    except ImportError:
+        # Fallback quando pyodbc não está disponível
+        st.warning("pyodbc não disponível, usando implementação alternativa")
+        # Classe simulada ou alternativa
+        class PyodbcMock:
+            # Implementar métodos necessários que simulam pyodbc
+            pass
+        pyodbc = PyodbcMock()
 
 from database import get_protheus_connection # Importa a função de conexão com Protheus
 
