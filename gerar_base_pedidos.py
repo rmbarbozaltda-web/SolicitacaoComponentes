@@ -42,6 +42,31 @@ def inicializar_e_migrar_db():
     para manter o schema compatível com a aplicação.
     """
     print("Verificando e inicializando a estrutura do banco de dados local...")
+    
+    # Primeiro, vamos verificar se o banco já existe e fazer backup se necessário
+    if os.path.exists(DB_LOCAL):
+        # Verificar se há dados nas tabelas principais antes de prosseguir
+        try:
+            with sqlite3.connect(DB_LOCAL) as conn_check:
+                cursor = conn_check.cursor()
+                # Verificar tabela de solicitações
+                cursor.execute("SELECT COUNT(*) FROM solicitacoes")
+                count_solicitacoes = cursor.fetchone()[0]
+                # Verificar tabela de histórico
+                cursor.execute("SELECT COUNT(*) FROM historico")
+                count_historico = cursor.fetchone()[0]
+                
+                print(f"Banco de dados existente contém {count_solicitacoes} solicitações e {count_historico} registros de histórico.")
+                
+                # Se houver dados, fazer backup
+                if count_solicitacoes > 0 or count_historico > 0:
+                    import shutil
+                    backup_file = f"{DB_LOCAL}.backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    shutil.copy2(DB_LOCAL, backup_file)
+                    print(f"Backup do banco de dados criado: {backup_file}")
+        except Exception as e:
+            print(f"Aviso: Não foi possível verificar dados existentes: {e}")
+    
     with sqlite3.connect(DB_LOCAL) as conn:
         cursor = conn.cursor()
         # 1. Garante que todas as tabelas do sistema existam
@@ -85,6 +110,7 @@ def inicializar_e_migrar_db():
                 quantidade_liberada INTEGER DEFAULT 0, -- Novo: Quantidade separada pelo almoxarifado
                 quantidade_retirada INTEGER DEFAULT 0, -- Novo: Quantidade efetivamente retirada
                 quantidade_devolvida INTEGER DEFAULT 0, -- Quantidade devolvida pelo solicitante
+                observacoes TEXT,
                 FOREIGN KEY (solicitacao_id) REFERENCES solicitacoes (id)
             )
         ''')
@@ -260,7 +286,23 @@ def gerar_base_completa():
     # Salva o resultado em uma tabela 'pedidos_info' no nosso banco local
     try:
         with sqlite3.connect(DB_LOCAL) as conn_local:
-            # Usamos 'replace' para que cada execução apague a tabela antiga e crie uma nova
+            # Verificar se a tabela já existe e tem dados
+            cursor = conn_local.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pedidos_info'")
+            if cursor.fetchone():
+                cursor.execute("SELECT COUNT(*) FROM pedidos_info")
+                count = cursor.fetchone()[0]
+                if count > 0:
+                    # Se a tabela já tem dados, fazemos backup antes de substituir
+                    import shutil
+                    backup_file = f"pedidos_info.backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+                    # Exportar dados existentes para o backup
+                    df_existing = pd.read_sql_query("SELECT * FROM pedidos_info", conn_local)
+                    with sqlite3.connect(backup_file) as conn_backup:
+                        df_existing.to_sql('pedidos_info', conn_backup, index=False)
+                    print(f"Backup dos dados existentes criado em {backup_file}")
+            
+            # Agora podemos substituir com segurança
             df_resultado.to_sql('pedidos_info', conn_local, if_exists='replace', index=False)
         fim = time.time()
         print("\n----------------------------------------------------")
