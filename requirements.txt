@@ -11,3 +11,5 @@ plotly==5.19.0
 openpyxl==3.1.2
 
 python-dotenv==1.0.1
+
+pymssql 
